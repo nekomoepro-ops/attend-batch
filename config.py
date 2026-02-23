@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 _CONFIG_DIR = Path(__file__).resolve().parent
@@ -36,20 +37,31 @@ _OPTIONAL_DEFAULTS = {
 
 
 def _load_config() -> dict:
-    if not _CONFIG_PATH.exists():
-        hint = ""
-        if _EXAMPLE_PATH.exists():
-            hint = f"\n  {_EXAMPLE_PATH.name} を config.json にコピーして編集してください。"
-        raise FileNotFoundError(
-            f"設定ファイルが見つかりません: {_CONFIG_PATH}{hint}"
-        )
+    # 1) GitHub Actions用：Secrets（環境変数）から読む
+    raw = os.environ.get("APP_CONFIG_JSON", "").strip()
+    if raw:
+        data = json.loads(raw)
+    else:
+        # 2) ローカル用：config.json
+        if not _CONFIG_PATH.exists():
+            hint = ""
+            if _EXAMPLE_PATH.exists():
+                hint = f"\n  {_EXAMPLE_PATH.name} を config.json にコピーして編集してください。"
+            raise FileNotFoundError(
+                f"設定ファイルが見つかりません: {_CONFIG_PATH}{hint}"
+            )
 
-    with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
-        data = json.load(f)
+        with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+    # サービスアカウントは別Secretを優先（入れ子JSON事故防止）
+    raw_sa = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    if raw_sa:
+        data["service_account_json"] = raw_sa
 
     for key in _REQUIRED_KEYS:
         if key not in data or not str(data[key]).strip():
-            raise ValueError(f"config.json に必須キー '{key}' を設定してください。")
+            raise ValueError(f"config に必須キー '{key}' を設定してください。")
 
     for key, default in _OPTIONAL_DEFAULTS.items():
         if key not in data:
@@ -103,3 +115,4 @@ __all__ = [
     "REQUEST_SLEEP",
     "TIMEOUT_SEC",
 ]
+
