@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import re
+import json
+from pathlib import Path
 import time
 from datetime import datetime, date, time as dtime, timedelta
 from typing import List
@@ -168,9 +170,26 @@ def write_today_names_to_salary(service, all_rows: List[List[str]]) -> None:
         body={"values": values},
     ).execute()
 
+def load_service_account_creds(value: str, scopes: list[str]) -> Credentials:
+    v = (value or "").strip()
+    if not v:
+        raise ValueError("SERVICE_ACCOUNT_JSON が空です")
+
+    # JSON本文ならこっち
+    if v.startswith("{"):
+        info = json.loads(v)
+        return Credentials.from_service_account_info(info, scopes=scopes)
+
+    # ファイルパスならこっち（ローカル互換）
+    p = Path(v)
+    if p.exists():
+        return Credentials.from_service_account_file(str(p), scopes=scopes)
+
+    raise ValueError("SERVICE_ACCOUNT_JSON は JSON本文 か ファイルパスにしてください")
+
 def main():
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-    creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_JSON, scopes=scopes)
+    creds = load_service_account_creds(SERVICE_ACCOUNT_JSON, scopes=scopes)
     service = build("sheets", "v4", credentials=creds, cache_discovery=False)
 
     dates = target_dates()
@@ -197,3 +216,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
