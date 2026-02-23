@@ -1,0 +1,105 @@
+# -*- coding: utf-8 -*-
+"""
+出勤情報（attend_sync）用の設定読み込み。
+このフォルダ内の config.json を参照します。
+
+使い方:
+  1. config.example.json を config.json にコピー
+  2. config.json を編集してあなたの環境の値を入れる
+  3. python attend_sync.py を実行（または run_attend_sync.bat）
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+_CONFIG_DIR = Path(__file__).resolve().parent
+_CONFIG_PATH = _CONFIG_DIR / "config.json"
+_EXAMPLE_PATH = _CONFIG_DIR / "config.example.json"
+
+_REQUIRED_KEYS = (
+    "service_account_json",
+    "spreadsheet_id",
+    "sheet_name",
+    "salary_spreadsheet_id",
+    "salary_sheet_name",
+    "attend_url_template",
+)
+_OPTIONAL_DEFAULTS = {
+    "salary_member_count": 10,
+    "days_ahead": 14,
+    "cutoff_hour": 3,
+    "request_sleep": 1.0,
+    "timeout_sec": 30,
+}
+
+
+def _load_config() -> dict:
+    if not _CONFIG_PATH.exists():
+        hint = ""
+        if _EXAMPLE_PATH.exists():
+            hint = f"\n  {_EXAMPLE_PATH.name} を config.json にコピーして編集してください。"
+        raise FileNotFoundError(
+            f"設定ファイルが見つかりません: {_CONFIG_PATH}{hint}"
+        )
+
+    with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    for key in _REQUIRED_KEYS:
+        if key not in data or not str(data[key]).strip():
+            raise ValueError(f"config.json に必須キー '{key}' を設定してください。")
+
+    for key, default in _OPTIONAL_DEFAULTS.items():
+        if key not in data:
+            data[key] = default
+
+    return data
+
+
+def _get_config() -> dict:
+    if not hasattr(_get_config, "_cache"):
+        _get_config._cache = _load_config()  # type: ignore[attr-defined]
+    return _get_config._cache  # type: ignore[attr-defined]
+
+
+def __getattr__(name: str):
+    key_map = {
+        "SERVICE_ACCOUNT_JSON": "service_account_json",
+        "SPREADSHEET_ID": "spreadsheet_id",
+        "SHEET_NAME": "sheet_name",
+        "SALARY_SPREADSHEET_ID": "salary_spreadsheet_id",
+        "SALARY_SHEET_NAME": "salary_sheet_name",
+        "SALARY_MEMBER_COUNT": "salary_member_count",
+        "SALARY_RANGE": None,  # 計算で出す
+        "ATTEND_URL_TEMPLATE": "attend_url_template",
+        "DAYS_AHEAD": "days_ahead",
+        "CUTOFF_HOUR": "cutoff_hour",
+        "REQUEST_SLEEP": "request_sleep",
+        "TIMEOUT_SEC": "timeout_sec",
+    }
+    if name not in key_map:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    if key_map[name] is None:
+        # SALARY_RANGE = f"A3:A{3 + SALARY_MEMBER_COUNT - 1}"
+        cfg = _get_config()
+        n = int(cfg.get("salary_member_count", 10))
+        return f"A3:A{3 + n - 1}"
+    return _get_config()[key_map[name]]
+
+
+__all__ = [
+    "SERVICE_ACCOUNT_JSON",
+    "SPREADSHEET_ID",
+    "SHEET_NAME",
+    "SALARY_SPREADSHEET_ID",
+    "SALARY_SHEET_NAME",
+    "SALARY_MEMBER_COUNT",
+    "SALARY_RANGE",
+    "ATTEND_URL_TEMPLATE",
+    "DAYS_AHEAD",
+    "CUTOFF_HOUR",
+    "REQUEST_SLEEP",
+    "TIMEOUT_SEC",
+]
