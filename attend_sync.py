@@ -141,15 +141,6 @@ def parse_attend(html: str, yyyymmdd: str) -> List[List[str]]:
 
     return rows
 
-
-def write_to_sheet(service, values: List[List[str]]) -> None:
-    service.spreadsheets().values().update(
-        spreadsheetId=SPREADSHEET_ID,
-        range=f"{SHEET_NAME}!A1",
-        valueInputOption="USER_ENTERED",
-        body={"values": values},
-    ).execute()
-
 def write_today_names_to_salary(service, all_rows: List[List[str]]) -> None:
     today_str = business_date().strftime("%Y%m%d")
 
@@ -169,6 +160,54 @@ def write_today_names_to_salary(service, all_rows: List[List[str]]) -> None:
         valueInputOption="USER_ENTERED",
         body={"values": values},
     ).execute()
+
+def _last_filled_row_in_colA(service, spreadsheet_id: str, sheet_name: str) -> int:
+    """
+    A列を見て、最後に値が入っている行番号（1始まり）を返す。
+    空なら0。
+    """
+    resp = service.spreadsheets().values().get(
+        spreadsheetId=spreadsheet_id,
+        range=f"{sheet_name}!A:A",
+        majorDimension="COLUMNS",
+    ).execute()
+
+    col = (resp.get("values") or [[]])[0]
+    # col は A1.. の値配列。末尾の空は入ってこないことが多いが、念のため右側もstrip
+    last = 0
+    for i, v in enumerate(col, start=1):
+        if str(v).strip() != "":
+            last = i
+    return last
+
+def _clear_tail_rows(service, spreadsheet_id: str, sheet_name: str, start_row: int, end_row: int) -> None:
+    """
+    start_row〜end_row をクリア（A:D想定）。
+    """
+    if end_row < start_row:
+        return
+    # A〜D を消す。列数を増やしたいなら D を増やす
+    service.spreadsheets().values().clear(
+        spreadsheetId=spreadsheet_id,
+        range=f"{sheet_name}!A{start_row}:D{end_row}",
+        body={},
+    ).execute()
+
+def write_to_sheet(service, values: List[List[str]]) -> None:
+    # まずA1から書く（上書き）
+    service.spreadsheets().values().update(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"{SHEET_NAME}!A1",
+        valueInputOption="USER_ENTERED",
+        body={"values": values},
+    ).execute()
+
+    # 以前のデータのほうが行数が多いと下に残骸が残るので掃除する
+    written_rows = len(values)  # header込み
+    last_row = _last_filled_row_in_colA(service, SPREADSHEET_ID, SHEET_NAME)
+
+    # 書き込んだ次の行〜最後までをクリア
+    _clear_tail_rows(service, SPREADSHEET_ID, SHEET_NAME, written_rows + 1, last_row)
 
 def load_service_account_creds(value: str, scopes: list[str]) -> Credentials:
     v = (value or "").strip()
@@ -215,5 +254,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
