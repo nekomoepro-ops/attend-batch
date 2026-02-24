@@ -23,17 +23,8 @@ _REQUIRED_KEYS = (
     "service_account_json",
     "spreadsheet_id",
     "sheet_name",
-    "salary_spreadsheet_id",
-    "salary_sheet_name",
     "attend_url_template",
 )
-_OPTIONAL_DEFAULTS = {
-    "salary_member_count": 10,
-    "days_ahead": 14,
-    "cutoff_hour": 3,
-    "request_sleep": 1.0,
-    "timeout_sec": 30,
-}
 
 
 def _load_config() -> dict:
@@ -81,10 +72,8 @@ def __getattr__(name: str):
         "SERVICE_ACCOUNT_JSON": "service_account_json",
         "SPREADSHEET_ID": "spreadsheet_id",
         "SHEET_NAME": "sheet_name",
-        "SALARY_SPREADSHEET_ID": "salary_spreadsheet_id",
-        "SALARY_SHEET_NAME": "salary_sheet_name",
-        "SALARY_MEMBER_COUNT": "salary_member_count",
-        "SALARY_RANGE": None,  # 計算で出す
+        "DB_SPREADSHEET_ID": "db2_spreadsheet_id",
+        "DB_SHEET_NAME": "db2_sheet_name",
         "ATTEND_URL_TEMPLATE": "attend_url_template",
         "DAYS_AHEAD": "days_ahead",
         "CUTOFF_HOUR": "cutoff_hour",
@@ -93,11 +82,6 @@ def __getattr__(name: str):
     }
     if name not in key_map:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    if key_map[name] is None:
-        # SALARY_RANGE = f"A3:A{3 + SALARY_MEMBER_COUNT - 1}"
-        cfg = _get_config()
-        n = int(cfg.get("salary_member_count", 10))
-        return f"A3:A{3 + n - 1}"
     return _get_config()[key_map[name]]
 
 
@@ -105,14 +89,13 @@ __all__ = [
     "SERVICE_ACCOUNT_JSON",
     "SPREADSHEET_ID",
     "SHEET_NAME",
-    "SALARY_SPREADSHEET_ID",
-    "SALARY_SHEET_NAME",
-    "SALARY_MEMBER_COUNT",
-    "SALARY_RANGE",
+    "DB_SPREADSHEET_ID",
+    "DB_SHEET_NAME",
     "ATTEND_URL_TEMPLATE",
     "DAYS_AHEAD",
     "CUTOFF_HOUR",
     "REQUEST_SLEEP",
     "TIMEOUT_SEC",
 ]
+
 
