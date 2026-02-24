@@ -208,7 +208,7 @@ def main():
     service = build("sheets", "v4", credentials=creds, cache_discovery=False)
 
     dates = target_dates()
-    header = ["日付", "id", "源氏名", "時間"]
+    header = ["business_date", "girl_id", "girl_name", "schedule"]
     all_rows: List[List[str]] = []
 
     for d in dates:
@@ -233,7 +233,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
