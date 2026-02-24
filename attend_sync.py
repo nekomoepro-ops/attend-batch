@@ -209,11 +209,11 @@ def main():
         time.sleep(REQUEST_SLEEP)
 
     write_to_sheet(service, [header] + all_rows)
-    write_today_names_to_salary(service, all_rows)
 
     print(f"OK: days={len(dates)} total_rows={len(all_rows)}")
     print("BUSINESS_DATE:", business_date().isoformat(), "CUTOFF_HOUR:", CUTOFF_HOUR)
 
 if __name__ == "__main__":
     main()
+
 
