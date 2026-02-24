@@ -22,10 +22,8 @@ from config import (
     SERVICE_ACCOUNT_JSON,
     SPREADSHEET_ID,
     SHEET_NAME,
-    SALARY_SPREADSHEET_ID,
-    SALARY_SHEET_NAME,
-    SALARY_MEMBER_COUNT,
-    SALARY_RANGE,
+    DB_SPREADSHEET_ID,
+    DB_SHEET_NAME,
     ATTEND_URL_TEMPLATE,
     DAYS_AHEAD,
     CUTOFF_HOUR,
@@ -141,26 +139,6 @@ def parse_attend(html: str, yyyymmdd: str) -> List[List[str]]:
 
     return rows
 
-def write_today_names_to_salary(service, all_rows: List[List[str]]) -> None:
-    today_str = business_date().strftime("%Y%m%d")
-
-    today_rows = [r for r in all_rows if len(r) >= 3 and r[0] == today_str]
-
-    names_with_dupes = [
-        (r[2] or "").strip() for r in today_rows if len(r) >= 3 and (r[2] or "").strip()
-    ]
-    names = list(dict.fromkeys(names_with_dupes))
-
-    names = names[:SALARY_MEMBER_COUNT]
-    values = [[n] for n in names] + [[""] for _ in range(SALARY_MEMBER_COUNT - len(names))]
-
-    service.spreadsheets().values().update(
-        spreadsheetId=SALARY_SPREADSHEET_ID,
-        range=f"{SALARY_SHEET_NAME}!{SALARY_RANGE}",
-        valueInputOption="USER_ENTERED",
-        body={"values": values},
-    ).execute()
-
 def _last_filled_row_in_colA(service, spreadsheet_id: str, sheet_name: str) -> int:
     """
     A列を見て、最後に値が入っている行番号（1始まり）を返す。
@@ -193,21 +171,19 @@ def _clear_tail_rows(service, spreadsheet_id: str, sheet_name: str, start_row: i
         body={},
     ).execute()
 
-def write_to_sheet(service, values: List[List[str]]) -> None:
-    # まずA1から書く（上書き）
+def write_to_target(service, spreadsheet_id: str, sheet_name: str, values: List[List[str]]) -> None:
+    # A1から上書き
     service.spreadsheets().values().update(
-        spreadsheetId=SPREADSHEET_ID,
-        range=f"{SHEET_NAME}!A1",
+        spreadsheetId=spreadsheet_id,
+        range=f"{sheet_name}!A1",
         valueInputOption="USER_ENTERED",
         body={"values": values},
     ).execute()
 
-    # 以前のデータのほうが行数が多いと下に残骸が残るので掃除する
-    written_rows = len(values)  # header込み
-    last_row = _last_filled_row_in_colA(service, SPREADSHEET_ID, SHEET_NAME)
-
-    # 書き込んだ次の行〜最後までをクリア
-    _clear_tail_rows(service, SPREADSHEET_ID, SHEET_NAME, written_rows + 1, last_row)
+    # 下に残る古いデータを掃除
+    written_rows = len(values)
+    last_row = _last_filled_row_in_colA(service, spreadsheet_id, sheet_name)
+    _clear_tail_rows(service, spreadsheet_id, sheet_name, written_rows + 1, last_row)
 
 def load_service_account_creds(value: str, scopes: list[str]) -> Credentials:
     v = (value or "").strip()
@@ -247,13 +223,17 @@ def main():
         all_rows.extend(parse_attend(html, d))
         time.sleep(REQUEST_SLEEP)
 
-    write_to_sheet(service, [header] + all_rows)
+    values = [header] + all_rows
+    write_to_target(service, SPREADSHEET_ID, SHEET_NAME, values)
+    if str(DB_SPREADSHEET_ID).strip() and str(DB_SHEET_NAME).strip():
+        write_to_target(service, DB_SPREADSHEET_ID, DB_SHEET_NAME, values)
 
     print(f"OK: days={len(dates)} total_rows={len(all_rows)}")
     print("BUSINESS_DATE:", business_date().isoformat(), "CUTOFF_HOUR:", CUTOFF_HOUR)
 
 if __name__ == "__main__":
     main()
+
 
 
 
