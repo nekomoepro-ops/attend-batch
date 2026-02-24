@@ -26,6 +26,13 @@ _REQUIRED_KEYS = (
     "attend_url_template",
 )
 
+_OPTIONAL_DEFAULTS = {
+    "days_ahead": 14,
+    "cutoff_hour": 3,
+    "request_sleep": 1.0,
+    "timeout_sec": 30,
+}
+
 
 def _load_config() -> dict:
     # 1) GitHub Actions用：Secrets（環境変数）から読む
@@ -97,5 +104,6 @@ __all__ = [
     "REQUEST_SLEEP",
     "TIMEOUT_SEC",
 ]
+
 
 
