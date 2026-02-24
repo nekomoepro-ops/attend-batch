@@ -7,6 +7,10 @@
   1. config.example.json を config.json にコピー
   2. config.json を編集してあなたの環境の値を入れる
   3. python attend_sync.py を実行（または run_attend_sync.bat）
+
+GitHub Actions:
+  - Secrets に APP_CONFIG_JSON を入れる（JSON文字列）
+  - サービスアカウントは GOOGLE_SERVICE_ACCOUNT_JSON を優先（入れ子事故防止）
 """
 
 from __future__ import annotations
@@ -57,10 +61,12 @@ def _load_config() -> dict:
     if raw_sa:
         data["service_account_json"] = raw_sa
 
+    # 必須チェック
     for key in _REQUIRED_KEYS:
         if key not in data or not str(data[key]).strip():
             raise ValueError(f"config に必須キー '{key}' を設定してください。")
 
+    # デフォルト補完
     for key, default in _OPTIONAL_DEFAULTS.items():
         if key not in data:
             data[key] = default
@@ -79,8 +85,6 @@ def __getattr__(name: str):
         "SERVICE_ACCOUNT_JSON": "service_account_json",
         "SPREADSHEET_ID": "spreadsheet_id",
         "SHEET_NAME": "sheet_name",
-        "DB_SPREADSHEET_ID": "db2_spreadsheet_id",
-        "DB_SHEET_NAME": "db2_sheet_name",
         "ATTEND_URL_TEMPLATE": "attend_url_template",
         "DAYS_AHEAD": "days_ahead",
         "CUTOFF_HOUR": "cutoff_hour",
@@ -96,14 +100,9 @@ __all__ = [
     "SERVICE_ACCOUNT_JSON",
     "SPREADSHEET_ID",
     "SHEET_NAME",
-    "DB_SPREADSHEET_ID",
-    "DB_SHEET_NAME",
     "ATTEND_URL_TEMPLATE",
     "DAYS_AHEAD",
     "CUTOFF_HOUR",
     "REQUEST_SLEEP",
     "TIMEOUT_SEC",
 ]
-
-
-
