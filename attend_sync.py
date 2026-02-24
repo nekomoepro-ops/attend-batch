@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import re
 import json
-from pathlib import Path
 import time
+from pathlib import Path
 from datetime import datetime, date, time as dtime, timedelta
-from typing import List
+from typing import List, Tuple
 from zoneinfo import ZoneInfo
 
 import requests
@@ -14,16 +14,10 @@ from bs4 import BeautifulSoup
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
-
-# ===============================
-# 設定（このフォルダの config.json）
-# ===============================
 from config import (
     SERVICE_ACCOUNT_JSON,
     SPREADSHEET_ID,
     SHEET_NAME,
-    DB_SPREADSHEET_ID,
-    DB_SHEET_NAME,
     ATTEND_URL_TEMPLATE,
     DAYS_AHEAD,
     CUTOFF_HOUR,
@@ -34,6 +28,9 @@ from config import (
 JST = ZoneInfo("Asia/Tokyo")
 
 
+# ===============================
+# 日付まわり
+# ===============================
 def business_date(now: datetime | None = None) -> date:
     if now is None:
         now = datetime.now(JST)
@@ -48,15 +45,22 @@ def target_dates() -> List[str]:
     base = business_date()
     return [(base + timedelta(days=i)).strftime("%Y%m%d") for i in range(DAYS_AHEAD + 1)]
 
+
+def _min_target_date_str(dates: List[str]) -> str:
+    return min(dates) if dates else business_date().strftime("%Y%m%d")
+
+
+# ===============================
+# HTML 取得/解析
+# ===============================
 def normalize_gengou_name(name: str) -> str:
     if not name:
         return ""
-
     name = name.strip()
     cut_chars = r"\(\（\【\『\[\「"
     name = re.split(f"[{cut_chars}]", name, maxsplit=1)[0].strip()
-
     return name
+
 
 def _decode_best(raw: bytes) -> tuple[str, str]:
     candidates = ["utf-8", "shift_jis", "cp932", "euc_jp"]
@@ -113,6 +117,16 @@ def _extract_girlid_from_block(block) -> str:
     return m2.group(1) if m2 else ""
 
 
+def _normalize_schedule(clock: str) -> str:
+    """
+    例: '14:00 - 2:00' / '14:00-02:00' などを '14:00 - 2:00' っぽく整形
+    """
+    s = (clock or "").strip()
+    s = re.sub(r"\s*出勤\s*$", "", s).strip()
+    s = re.sub(r"\s*-\s*", " - ", s)
+    return s
+
+
 def parse_attend(html: str, yyyymmdd: str) -> List[List[str]]:
     soup = BeautifulSoup(html, "html.parser")
     blocks = soup.select("div.list.attend-list")
@@ -126,81 +140,106 @@ def parse_attend(html: str, yyyymmdd: str) -> List[List[str]]:
 
         clock_el = b.select_one("p.clock")
         clock = clock_el.get_text(strip=True) if clock_el else ""
-
         if not re.search(r"\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}", clock):
             continue
 
-        clock = re.sub(r"\s*出勤\s*$", "", clock).strip()
-
         girlid = _extract_girlid_from_block(b)
+        schedule = _normalize_schedule(clock)
 
         if name:
-            rows.append([yyyymmdd, girlid, name, clock])
+            rows.append([yyyymmdd, girlid, name, schedule])
 
     return rows
 
-def _last_filled_row_in_colA(service, spreadsheet_id: str, sheet_name: str) -> int:
-    """
-    A列を見て、最後に値が入っている行番号（1始まり）を返す。
-    空なら0。
-    """
-    resp = service.spreadsheets().values().get(
-        spreadsheetId=spreadsheet_id,
-        range=f"{sheet_name}!A:A",
-        majorDimension="COLUMNS",
-    ).execute()
 
-    col = (resp.get("values") or [[]])[0]
-    # col は A1.. の値配列。末尾の空は入ってこないことが多いが、念のため右側もstrip
-    last = 0
-    for i, v in enumerate(col, start=1):
-        if str(v).strip() != "":
-            last = i
-    return last
-
-def _clear_tail_rows(service, spreadsheet_id: str, sheet_name: str, start_row: int, end_row: int) -> None:
-    """
-    start_row〜end_row をクリア（A:D想定）。
-    """
-    if end_row < start_row:
-        return
-    # A〜D を消す。列数を増やしたいなら D を増やす
-    service.spreadsheets().values().clear(
-        spreadsheetId=spreadsheet_id,
-        range=f"{sheet_name}!A{start_row}:D{end_row}",
-        body={},
-    ).execute()
-
-def write_to_target(service, spreadsheet_id: str, sheet_name: str, values: List[List[str]]) -> None:
-    # A1から上書き
-    service.spreadsheets().values().update(
-        spreadsheetId=spreadsheet_id,
-        range=f"{sheet_name}!A1",
-        valueInputOption="USER_ENTERED",
-        body={"values": values},
-    ).execute()
-
-    # 下に残る古いデータを掃除
-    written_rows = len(values)
-    last_row = _last_filled_row_in_colA(service, spreadsheet_id, sheet_name)
-    _clear_tail_rows(service, spreadsheet_id, sheet_name, written_rows + 1, last_row)
-
+# ===============================
+# Sheets（DB追記 + 重複排除）
+# ===============================
 def load_service_account_creds(value: str, scopes: list[str]) -> Credentials:
     v = (value or "").strip()
     if not v:
         raise ValueError("SERVICE_ACCOUNT_JSON が空です")
 
-    # JSON本文ならこっち
+    # JSON本文
     if v.startswith("{"):
         info = json.loads(v)
         return Credentials.from_service_account_info(info, scopes=scopes)
 
-    # ファイルパスならこっち（ローカル互換）
+    # ファイルパス（ローカル互換）
     p = Path(v)
     if p.exists():
         return Credentials.from_service_account_file(str(p), scopes=scopes)
 
     raise ValueError("SERVICE_ACCOUNT_JSON は JSON本文 か ファイルパスにしてください")
+
+
+def ensure_header(service, spreadsheet_id: str, sheet_name: str, header: List[str]) -> None:
+    """
+    A1 が空ならヘッダーを入れる。既に何か入ってたら触らない。
+    """
+    resp = service.spreadsheets().values().get(
+        spreadsheetId=spreadsheet_id,
+        range=f"{sheet_name}!A1:D1",
+    ).execute()
+    row = (resp.get("values") or [[]])[0]
+    if any(str(x).strip() for x in row):
+        return
+
+    service.spreadsheets().values().update(
+        spreadsheetId=spreadsheet_id,
+        range=f"{sheet_name}!A1",
+        valueInputOption="USER_ENTERED",
+        body={"values": [header]},
+    ).execute()
+
+
+def load_existing_keys_for_window(
+    service,
+    spreadsheet_id: str,
+    sheet_name: str,
+    min_date_str: str,
+) -> set[Tuple[str, str, str]]:
+    """
+    DBシートの A2:D を読み、min_date_str 以上の行だけキー化して返す
+    キー: (business_date, girl_id, schedule)
+    """
+    resp = service.spreadsheets().values().get(
+        spreadsheetId=spreadsheet_id,
+        range=f"{sheet_name}!A2:D",
+    ).execute()
+
+    values = resp.get("values") or []
+    keys: set[Tuple[str, str, str]] = set()
+
+    for r in values:
+        if len(r) < 4:
+            continue
+        d, gid, _name, sched = (r[0], r[1], r[2], r[3])
+        d = str(d).strip()
+        if not d:
+            continue
+        # 直近期間だけを見る（YYYYMMDD前提）
+        if d >= min_date_str:
+            keys.add((d, str(gid).strip(), str(sched).strip()))
+
+    return keys
+
+
+def append_rows(service, spreadsheet_id: str, sheet_name: str, rows: List[List[str]]) -> None:
+    """
+    末尾に追記。ヘッダーは含めない想定（データ行だけ）
+    """
+    if not rows:
+        return
+
+    service.spreadsheets().values().append(
+        spreadsheetId=spreadsheet_id,
+        range=f"{sheet_name}!A:D",
+        valueInputOption="USER_ENTERED",
+        insertDataOption="INSERT_ROWS",
+        body={"values": rows},
+    ).execute()
+
 
 def main():
     scopes = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -208,7 +247,16 @@ def main():
     service = build("sheets", "v4", credentials=creds, cache_discovery=False)
 
     dates = target_dates()
+    min_date_str = _min_target_date_str(dates)
+
     header = ["business_date", "girl_id", "girl_name", "schedule"]
+
+    # DBシート準備
+    ensure_header(service, SPREADSHEET_ID, SHEET_NAME, header)
+
+    # 直近期間の既存キーをロード（重複排除用）
+    existing_keys = load_existing_keys_for_window(service, SPREADSHEET_ID, SHEET_NAME, min_date_str)
+
     all_rows: List[List[str]] = []
 
     for d in dates:
@@ -223,13 +271,22 @@ def main():
         all_rows.extend(parse_attend(html, d))
         time.sleep(REQUEST_SLEEP)
 
-    values = [header] + all_rows
-    write_to_target(service, SPREADSHEET_ID, SHEET_NAME, values)
-    if str(DB_SPREADSHEET_ID).strip() and str(DB_SHEET_NAME).strip():
-        write_to_target(service, DB_SPREADSHEET_ID, DB_SHEET_NAME, values)
+    # 重複排除（同じ business_date + girl_id + schedule は追加しない）
+    new_rows: List[List[str]] = []
+    for r in all_rows:
+        if len(r) < 4:
+            continue
+        key = (str(r[0]).strip(), str(r[1]).strip(), str(r[3]).strip())
+        if key in existing_keys:
+            continue
+        existing_keys.add(key)
+        new_rows.append(r)
 
-    print(f"OK: days={len(dates)} total_rows={len(all_rows)}")
+    append_rows(service, SPREADSHEET_ID, SHEET_NAME, new_rows)
+
+    print(f"OK: days={len(dates)} fetched_rows={len(all_rows)} appended_rows={len(new_rows)}")
     print("BUSINESS_DATE:", business_date().isoformat(), "CUTOFF_HOUR:", CUTOFF_HOUR)
+
 
 if __name__ == "__main__":
     main()
