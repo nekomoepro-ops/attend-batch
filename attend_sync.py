@@ -94,6 +94,15 @@ def fetch_html(url: str) -> tuple[str | None, int]:
 
     r = requests.get(url, headers=headers, timeout=TIMEOUT_SEC, allow_redirects=True)
 
+    if r.status_code == 403:
+        print("=== 403 RESPONSE HEADERS ===")
+        for k, v in r.headers.items():
+            print(f"{k}: {v}")
+
+        print("=== 403 RESPONSE BODY (first 500 chars) ===")
+        print(r.text[:500])
+        return None, 403
+
     if r.status_code == 404:
         return None, 404
 
@@ -301,5 +310,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
