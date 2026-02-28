@@ -261,21 +261,21 @@ def main():
     all_rows: List[List[str]] = []
 
     for d in dates:
-    url = ATTEND_URL_TEMPLATE.format(DATE=d)
-    print("FETCH:", url)
+        url = ATTEND_URL_TEMPLATE.format(DATE=d)
+        print("FETCH:", url)
 
-    html, status = fetch_html(url)
+        html, status = fetch_html(url)
 
-    if status == 403:
-        print("403 detected. Stop further requests.")
-        break  # ← これ重要
+        if status == 403:
+            print("403 detected. Stop further requests.")
+            break  # ← これ重要
 
-    if html is None:
+        if html is None:
+            time.sleep(REQUEST_SLEEP)
+            continue
+
+        all_rows.extend(parse_attend(html, d))
         time.sleep(REQUEST_SLEEP)
-        continue
-
-    all_rows.extend(parse_attend(html, d))
-    time.sleep(REQUEST_SLEEP)
     
     # 重複排除（同じ business_date + girl_id + schedule は追加しない）
     new_rows: List[List[str]] = []
@@ -301,4 +301,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
