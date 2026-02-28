@@ -81,7 +81,7 @@ def _decode_best(raw: bytes) -> tuple[str, str]:
     return best_text, best_enc
 
 
-def fetch_html(url: str) -> str | None:
+def fetch_html(url: str) -> tuple[str | None, int]:
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -95,14 +95,15 @@ def fetch_html(url: str) -> str | None:
     r = requests.get(url, headers=headers, timeout=TIMEOUT_SEC, allow_redirects=True)
 
     if r.status_code == 404:
-        return None
+        return None, 404
+
     if r.status_code != 200:
         print(f"SKIP: HTTP {r.status_code} url={url}")
-        return None
+        return None, r.status_code
 
     html, enc = _decode_best(r.content)
     print(f"DECODED AS: {enc} | len={len(html)}")
-    return html
+    return html, 200
 
 
 def _extract_girlid_from_block(block) -> str:
@@ -260,17 +261,22 @@ def main():
     all_rows: List[List[str]] = []
 
     for d in dates:
-        url = ATTEND_URL_TEMPLATE.format(DATE=d)
-        print("FETCH:", url)
+    url = ATTEND_URL_TEMPLATE.format(DATE=d)
+    print("FETCH:", url)
 
-        html = fetch_html(url)
-        if html is None:
-            time.sleep(REQUEST_SLEEP)
-            continue
+    html, status = fetch_html(url)
 
-        all_rows.extend(parse_attend(html, d))
+    if status == 403:
+        print("403 detected. Stop further requests.")
+        break  # ← これ重要
+
+    if html is None:
         time.sleep(REQUEST_SLEEP)
+        continue
 
+    all_rows.extend(parse_attend(html, d))
+    time.sleep(REQUEST_SLEEP)
+    
     # 重複排除（同じ business_date + girl_id + schedule は追加しない）
     new_rows: List[List[str]] = []
     for r in all_rows:
@@ -282,6 +288,11 @@ def main():
         existing_keys.add(key)
         new_rows.append(r)
 
+    # new_rows が0なら書き込みしない（何も起きてない日）
+    if not new_rows:
+        print("No new rows. Skip append.")
+        return
+
     append_rows(service, SPREADSHEET_ID, SHEET_NAME, new_rows)
 
     print(f"OK: days={len(dates)} fetched_rows={len(all_rows)} appended_rows={len(new_rows)}")
@@ -290,3 +301,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
